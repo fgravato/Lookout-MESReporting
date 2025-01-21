@@ -1,0 +1,2659 @@
+{
+    "schemes": [],
+    "swagger": "2.0",
+    "info": {
+      "description": "MEP Device, Threat and Audit Events and more API\n\n© 2024 Lookout, Inc. LOOKOUT®\n\n# Authorization\n\n## Authenticating With the Mobile Risk v2 API\n\nApplications authenticate with the Mobile Risk V2 API through the Lookout platform’s OAuth 2.0 support.\n\n## Creating an Application Key\n\nYou must create an application key specific to your Lookout tenant to properly authenticate your application. You can do this from the [Lookout Mobile Endpoint Protection Console](https://app.lookout.com):\n\n1. Log into the [Lookout Mobile Endpoint Protection Console](https://app.lookout.com) as an administrator.\n2. In the left navigation bar, navigate to **System \u003E Application Keys**:\n\n![Application Key](https://app.lookout.com/mra/assets/application_key.png)\n\n&#128681; **NOTE** &#128681;: If you don’t see the **Application Keys** tab, contact Lookout Enterprise Support to enable this feature on your tenant.\n\n3. Click the **GENERATE KEY** button in the upper-right.\n4. Enter a label name, then click **Next**.\n5. Copy the generated key by clicking **Click to Copy Application Key to Clipboard**:\n\n![Copy to Clipboard](https://app.lookout.com/mra/assets/copy_application_key.png)\nCopy the key from your clipboard into the configuration for your application.\n\n&#128681; **IMPORTANT** &#128681;: Copy the generated key to your application **immediately** as you cannot access the key again after this procedure.\n\nOnce you have copied your tenant-specific key to your application, you can use it to create OAuth 2.0 access tokens using the Client Credentials Grant Flow outlined below:\n\n![OAuth Token Workflow](https://app.lookout.com/mra/assets/OAuth.png)\n\n## Requesting a Token\n\nMake a POST request to `https://api.lookout.com/oauth2/token` to obtain an access_token.  The resulting access_token has an expiry (example: 2 hours).\n\nThe POST request must have a Content-Type header of application/x-www-form-urlencoded. Provide the following parameters in the body of the request using form-encoding:\n\n| Parameter  | Required? | Description                            |\n|------------|-----------|----------------------------------------|\n| grant_type | Yes       | Must be client_credentials.            |\n| scope      | No        | A space-separated set of scope names. If omitted, the request uses the default permissions of the \u003C[application_key](#creating-an-application-key)\u003E. |\n\nFor example:\n\n`curl -H 'Accept: application/json' -H 'Authorization: Bearer \u003Capplication_key\u003E' -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials' https://api.lookout.com/oauth2/token`\n\nAnother example, using the Postman REST client plug-in for Chrome:\n\n![Postman](https://app.lookout.com/mra/assets/postman.png)\n\n## Token Response\n\nWhen a token request succeeds the server responds with a 200 response code and the following fields:\n\n| Field | Type | Provided? | Description |\n|-------|------|-----------|-------------|\n| access_token | String | Always | An access token for this application. |\n| token_type | String | Always | The access token type. Always Bearer. |\n| expires_in | Number | Always | TTL in seconds. |\n| expires_at | Number | Always | The date the token expires, specified in the number of milliseconds since epoch (January 1, 1970 00:00:00 GMT). |\n| scope | String | Always | A space-delimited set of scopes actually granted. This may be a subset of the requested scopes |\n\n\nFor example:\n\n`HTTP/1.1 200 OK\nContent-Type: application/json;charset=utf-8\nContent-Length: 2907\n{\n    \"access_token\": \"eyJra...\",\n    \"token_type\": \"Bearer\",\n    \"expires_at\": 1694464185524,\n    \"expires_in\": 7200,\n    \"scope\": \"\"\n}`\n\n## Using Access Tokens to Authenticate Requests\n\nOnce you obtain an access token you can use that token with any request to the API by including it in the authorization header. An example request could look like:\n\n`curl -H 'Accept: application/json' -H 'Authorization: Bearer \u003Caccess_token\u003E' https://api.lookout.com/mra/stream/v2/events`\n\nIf a request to any Mobile Threat API endpoint returns `401 UNAUTHORIZED`, the client must obtain a new access_token.  See [Requesting a Token](#requesting-a-token).\n\n\n# Events\n\nThe Events endpoint streams Mobile Risk Device, Threat and Audit events from the endpoint. The endpoint uses the Server-Sent Events standard and follows the same set of fields as the spec. Spec: https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events\n\nThe protocol is very simple. It uses the text/event-stream Content-Type and messages of the form:\n\n```\nid:0190bc7d-974b-7b64-9fa6-5b9ecca6fbc6\nevent:events\ndata:{\"events\":[{\"id\":\"0190bc7d-f89e-71c4-a75d-990d732ad92c\",...}, more events ..., {\"id\":\"0190bc7d-974b-7b64-9fa6-5b9ecca6fbc6\", ...}]}\n\nid:0190bc7e-77f3-7ddc-b828-4ee717b57d5e\nevent:event\ndata:{\"events\":[{\"id\":\"0190bc7e-9dbc-7a70-8143-24dcf65b4afc\", ...}, more events ..., {\"id\":\"0190bc7e-d823-7317-aaef-b4049e7ed668\", ... }]}\n\nevent:heartbeat\ndata:{}\n\n```\n\nEach event is separated from the next by an empty line (\n) and consists of various optional fields.\n\nThe event field specifies event types: event, heartbeat.\n\nThe data field is used for the array of events in this payload. Each event has an id field (uuid7 format) that uniquely identifies it and this is datetime-ordered. Using this, events are ordered in ascending order of id.\n\nThe id field in a message contains the id of the last event in the array in data. If the client needs to reconnect, it can use the last id it\nprocessed as the id parameter in the request, or the last-event-id header to start the event fetch at the last processed id. If the\nconnection is dropped or closed by the server, the client should reconnect with the last id it processed to get events from that id onwards.\n\nThe retry field in a message contains the number of milliseconds to wait before retrying the connection in case it breaks or was terminated for some reason.\n\nYou can use the curl command to try out the API by storing the access token from the [Requesting a token](#requesting-a-token) section above and saving it an ACCESS_TOKEN environment variable and then:\n\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/stream/v2/events' -H 'accept: text/event-stream'   -H \"Authorization: Bearer $ACCESS_TOKEN\"\n```\n\nEvents API also accepts a `types` argument to filter for specific event types (`DEVICE`, `THREAT`, and/or `AUDIT`, comma separated). For example, to filter for only `device` events:\n\n``` \ncurl -X 'GET' 'https://api.lookout.com/mra/stream/v2/events&types=DEVICE' -H 'accept: text/event-stream'   -H \"Authorization: Bearer $ACCESS_TOKEN\"\n```",
+      "title": "Mobile Risk API (MRA)",
+      "contact": {
+        "name": "esupport@lookout.com",
+        "url": "https://esupport.lookout.com",
+        "email": "esupport@lookout.com"
+      },
+      "version": "2.0"
+    },
+    "host": "api.lookout.com",
+    "basePath": "/",
+    "paths": {
+      "/mra/api/v2/device": {
+        "get": {
+          "description": "Get a single device, filtered by specified filters",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Devices"
+          ],
+          "summary": "Get a device by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "name": "customer_device_id",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "name": "guid",
+              "in": "query"
+            },
+            {
+              "type": "integer",
+              "name": "mdm_connector_id",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "name": "mdm_connector_uuid",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "mdm_device_id",
+              "in": "query"
+            },
+            {
+              "type": "boolean",
+              "name": "show_vulns",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.Device"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/devices": {
+        "get": {
+          "description": "Get devices, filtered by specified filters\nSome filters like security_status, protection_status, state also take ! as a not equal prefix, e.g. `security_status=!SECURE` will find all devices with security_status != SECURE\n\nDevices are returned in sorted order, ordered by oid descending. To paginate or scroll through all devices, start with no oid in the request\nand a limit of under 1000, parse the response and then on subsequent requests, set the oid to be the last oid in the previous response and the same limit. Repeat\nuntil no more devices are returned in the response. For example, using a pagination limit of 2 devices a time (normally you'd use up to 1000 as a limit):\n\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/devices?limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":16,\"devices\":[{\"guid\":\"d56816b8-1d18-40e3-9500-42bc3378111f\",\"oid\":\"0190bc68-3917-76b3-98ab-991845b2d209\", ... }, {\"guid\":\"b19f66f7-520a-404a-9c4b-7bfc16ec5e8c\",\"oid\":\"0190bc67-3bf3-7417-988b-2f459393fa4b\", ... }]}\n```\nUsing the last oid in the previous response, continue to request additional data until the returned count is 0. For example:\n```\nurl -X 'GET' 'https://api.lookout.com/mra/api/v2/devices?oid=0190bc68-3917-76b3-98ab-991845b2d209&limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":14,\"devices\":[{\"guid\":\"6c6f3b14-84b9-4a4f-9ea3-071a9b06ac50\",\"oid\":\"0190bc69-00db-7b6f-9662-11809f1bf7b7\", ... }, {\"guid\":\"b2630992-b03a-45d9-955e-df323edc9b3b\",\"oid\":\"0190bc68-3917-76b3-98ab-991845b2d209\", ... }]}\n```\n\nThis is a rate-limited query, and may return 429 Too Many Requests if the service is under load. Wait to try again\nif the response status code is 429.",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Devices"
+          ],
+          "summary": "Get devices by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "name": "aspl",
+              "in": "query"
+            },
+            {
+              "enum": [3, 6, 9, 12, 18, 24],
+              "type": "integer",
+              "name": "aspl_version_date",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "cve",
+              "in": "query"
+            },
+            {
+              "type": "boolean",
+              "name": "device_admin_settings_activated",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "description": "email, allows partial match",
+              "name": "email",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "description": "Device Group GUID",
+              "name": "group",
+              "in": "query"
+            },
+            {
+              "type": "boolean",
+              "name": "is_mdm",
+              "in": "query"
+            },
+            {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer",
+              "description": "use oid and limit for pagination. Default: 100, Max: 1000",
+              "name": "limit",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "description": "Order by id. Used for pagination, returns devices with oid strictly \u003C the specified oid. The oid format uses a UUID v7 which is a time sortable version of a UUID",
+              "name": "oid",
+              "in": "query"
+            },
+            {
+              "enum": [3, 6, 9, 12, 18, 24],
+              "type": "integer",
+              "name": "os_version_date",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "osversion",
+              "in": "query"
+            },
+            {
+              "type": "boolean",
+              "name": "pcp_enabled",
+              "in": "query"
+            },
+            {
+              "type": "boolean",
+              "name": "pcp_paused",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ANDROID",
+                "IOS"
+              ],
+              "type": "string",
+              "name": "platform",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "WORK",
+                "!WORK",
+                "PERSONAL",
+                "!PERSONAL"
+              ],
+              "type": "string",
+              "name": "profile_type",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "PROTECTED",
+                "!PROTECTED",
+                "DISCONNECTED",
+                "!DISCONNECTED"
+              ],
+              "type": "string",
+              "name": "protection_status",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "THREATS_HIGH",
+                "!THREATS_HIGH",
+                "THREATS_MEDIUM",
+                "!THREATS_MEDIUM",
+                "THREATS_LOW",
+                "!THREATS_LOW",
+                "SECURE",
+                "!SECURE"
+              ],
+              "type": "string",
+              "name": "security_status",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ACTIVATED",
+                "!ACTIVATED",
+                "DEACTIVATED",
+                "!DEACTIVATED",
+                "PENDING",
+                "!PENDING"
+              ],
+              "type": "string",
+              "name": "state",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetDevicesResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/android": {
+        "get": {
+          "description": "Get Android Security Patch Level Vulnerabilities for a given Security Patch Level and optionally with a Severity greater than or equal to a given Severity level",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get Android Security Patch Level Vulnerabilities",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "description": "Android Security Patch Level",
+              "name": "aspl",
+              "in": "query",
+              "required": true
+            },
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer",
+              "description": "CVE Severity (0 .. 10)",
+              "name": "severity",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.Vulnerabilities"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/cve": {
+        "get": {
+          "description": "Get CVE information, given its name",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get CVE information",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "name": "name",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetCveByNameResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/devices": {
+        "get": {
+          "description": "Get devices vulnerable to a given CVE specified by name",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get devices vulnerable to a CVE",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "name": "name",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetDevicesByCveNameResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/for_cve": {
+        "get": {
+          "description": "Fetches Android and IOS versions and Security Patch Levels (Android) that are vulnerable to a given CVE specified by name",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get OS Vulnerabilities",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "name": "name",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetOsVulnsByCveNameResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/ios": {
+        "get": {
+          "description": "Get IOS vulnerabilities for a given Version and optionally with a Severity greater than or equal to a given Severity level",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get IOS vulnerabilities for a given Version",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer",
+              "description": "CVE Severity (0 .. 10)",
+              "name": "severity",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "version",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.Vulnerabilities"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/os-vulns/os-versions": {
+        "get": {
+          "description": "Get distinct IOS and Android versions within the list of activated devices in the fleet",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "OS Vulnerabilities"
+          ],
+          "summary": "Get IOS and Android versions present in the fleet",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetDistinctOsVersionsResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/pcp-threat": {
+        "get": {
+          "description": "Get a single Phishing and Content Protection threat, filtered by specified filters",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Threats"
+          ],
+          "summary": "Get a Phishing and Content Protection threat by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "name": "guid",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.Threat"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/pcp-threats": {
+        "get": {
+          "description": "Get Phishing and Content Protection threats, filtered by specified filters\nSome filters like state, risk, classification also take ! as a not equal prefix, e.g. `risk=!HIGH` will find all threats with risk != HIGH\n\nThreats are returned in sorted order, ordered by oid descending. To paginate or scroll through all devices, start with no oid in the request\nand a limit of under 1000, parse the response and then on subsequent requests, set the oid to be the last oid in the previous response and the same limit. Repeat\nuntil no more threats are returned in the response. For example, using a pagination limit of 2 devices a time (normally you'd use up to 1000 as a limit):\n\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/pcp-threats?limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":196,\"threats\":[{\"guid\":\"d56816b8-1d18-40e3-9500-42bc3378111f\",\"oid\":\"0190bc6e-eb0a-755b-a73c-07229c67972d\", ... }, {\"guid\":\"b19f66f7-520a-404a-9c4b-7bfc16ec5e8c\",\"oid\":\"0190bc6e-87c8-71c7-8f82-6682bac32f4c\", ... }]}\n```\nUsing the last oid in the previous response, continue to request additional data until the returned count is 0. For example:\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/pcp-threats?oid=0190bc6e-eb0a-755b-a73c-07229c67972d&limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":94,\"threats\":[{\"guid\":\"6c6f3b14-84b9-4a4f-9ea3-071a9b06ac50\",\"oid\":\"0190bc6f-f102-75fa-aac9-10e9be20b431\", ... }, {\"guid\":\"b2630992-b03a-45d9-955e-df323edc9b3b\",\"oid\":\"0190bc6f-73ec-7a17-b750-6117e15c1ba9\", ... }]}\n```\n\nThis is a rate-limited query, and we reserve the right to return 429 Too Many Requests if the service is under load. Wait to try again\nif the response status code is 429.",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Threats"
+          ],
+          "summary": "Get Phishing and Content Protection threats by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "enum": [
+                "MALICIOUS_CONTENT",
+                "UNAUTHORIZED_CONTENT",
+                "PHISHING_CONTENT",
+                "DENYLISTED_CONTENT",
+                "!MALICIOUS_CONTENT",
+                "!UNAUTHORIZED_CONTENT",
+                "!PHISHING_CONTENT",
+                "!DENYLISTED_CONTENT"
+              ],
+              "type": "string",
+              "name": "classification",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "device_guid",
+              "in": "query"
+            },
+            {
+              "minimum": 0,
+              "type": "integer",
+              "description": "use oid and limit for pagination. Default: 100, Max: 1000",
+              "name": "limit",
+              "in": "query"
+            },
+            {
+              "minLength": 0,
+              "type": "string",
+              "description": "Order by id. Used for pagination, returns devices with oid strictly \u003C the specified oid. The oid format uses a UUID v7 which is a time sortable version of a UUID",
+              "name": "oid",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ANDROID",
+                "IOS"
+              ],
+              "type": "string",
+              "name": "platform",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "WORK",
+                "!WORK",
+                "PERSONAL",
+                "!PERSONAL"
+              ],
+              "type": "string",
+              "name": "profile_type",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "description": "query: substring search on guid, mdm_device_id, mdm_connector_id, mdm_connector_uuid, email",
+              "name": "query",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "HIGH",
+                "MEDIUM",
+                "LOW",
+                "ADVISORY",
+                "NONE"
+              ],
+              "type": "string",
+              "name": "risk",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ALL",
+                "LAST_30_DAYS",
+                "LAST_60_DAYS",
+                "LAST_90_DAYS",
+                "LAST_6_MONTHS"
+              ],
+              "type": "string",
+              "name": "timeframe",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetThreatsResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/smishing-alerts": {
+        "get": {
+          "description": "Get smishing alerts, filtered by specified filters\n\nSmishingAlerts are returned in sorted order, ordered by oid descending. To paginate or scroll through all smishing alerts, start with no oid in the request\nand a limit of under 1000, parse the response and then on subsequent requests, set the oid to be the last oid in the previous response and the same limit. Repeat\nuntil no more smishing alerts are returned in the response. For example, using a pagination limit of 2 smishing alerts a time (normally you'd use up to 1000 as a limit):\n\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/smishing-alerts?limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":34,\"smishing_alerts\":[{\"guid\":\"d56816b8-1d18-40e3-9500-42bc3378111f\",\"oid\":\"01900d77-5034-7ae1-a8c8-dc553eba7c97\", ... }, {\"guid\":\"b19f66f7-520a-404a-9c4b-7bfc16ec5e8c\",\"oid\":\"0190760d-dbdd-7b5a-bafc-2e0fe2dbd2e7\", ... }]}\n```\nUsing the last oid in the previous response, continue to request additional data until the returned count is 0. For example:\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/smishing-alerts?oid=0190760d-dbdd-7b5a-bafc-2e0fe2dbd2e7&limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":2,\"smishing_alerts\":[{\"guid\":\"6c6f3b14-84b9-4a4f-9ea3-071a9b06ac50\",\"oid\":\"0190bdab-fc7f-7dc8-bfa7-74c3bae0a290\", ... }, {\"guid\":\"b2630992-b03a-45d9-955e-df323edc9b3b\",\"oid\":\"0190bdab-bc84-799e-859f-47e2fb78e2de\", ... }]}\n```\n\nThis is a rate-limited query, and we reserve the right to return 429 Too Many Requests if the service is under load. Wait to try again\nif the response status code is 429.",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "SmishingAlerts"
+          ],
+          "summary": "Get smishing alerts by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "enum": [
+                "URL_DETECTION",
+                "FRAUD_DETECTION"
+              ],
+              "type": "string",
+              "name": "alert_type",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "description": "List of categories separated by commas. Must be one of: UNKNOWN_URL_CATEGORY, EMBEDDED_PHISHING_URL, MALICIOUS_CONTENT, UNKNOWN_FRAUD_CATEGORY, CEO_FRAUD",
+              "name": "categories",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "device_guid",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "enterprise_guid",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "impersonated_employee",
+              "in": "query"
+            },
+            {
+              "minimum": 0,
+              "type": "integer",
+              "description": "use oid and limit for pagination. Default: 100, Max: 1000",
+              "name": "limit",
+              "in": "query"
+            },
+            {
+              "minLength": 0,
+              "type": "string",
+              "description": "Order by id. Used for pagination, returns devices with oid strictly \u003C the specified oid. The oid format uses a UUID v7 which is a time sortable version of a UUID",
+              "name": "oid",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "original_url",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ANDROID",
+                "IOS"
+              ],
+              "type": "string",
+              "name": "platform",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ALL",
+                "LAST_30_DAYS",
+                "LAST_60_DAYS",
+                "LAST_90_DAYS",
+                "LAST_6_MONTHS"
+              ],
+              "type": "string",
+              "name": "timeframe",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetSmishingAlertsResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/smishing-alerts/{guid}": {
+        "get": {
+          "description": "Get a single smishing alert by its primary identifier, the guid.",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "SmishingAlerts"
+          ],
+          "summary": "Get a smishing alert by guid",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "description": "Path Parameter",
+              "name": "guid",
+              "in": "path",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.SmishingAlert"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/threat": {
+        "get": {
+          "description": "Get a single threat, filtered by specified filters",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Threats"
+          ],
+          "summary": "Get a threat by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "name": "guid",
+              "in": "query",
+              "required": true
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/models.Threat"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/api/v2/threats": {
+        "get": {
+          "description": "Get threats, filtered by specified filters\nSome filters like state, risk, classification also take ! as a not equal prefix, e.g. `risk=!ADVISORY` will find all threats with risk != ADVISORY\n\nThreats are returned in sorted order, ordered by oid descending. To paginate or scroll through all devices, start with no oid in the request\nand a limit of under 1000, parse the response and then on subsequent requests, set the oid to be the last oid in the previous response and the same limit. Repeat\nuntil no more threats are returned in the response. For example, using a pagination limit of 2 threats a time (normally you'd use up to 1000 as a limit):\n\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/threats?limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":34,\"threats\":[{\"guid\":\"d56816b8-1d18-40e3-9500-42bc3378111f\",\"oid\":\"0190bc71-ced1-7c86-9019-fa9fc9c2e899\", ... }, {\"guid\":\"b19f66f7-520a-404a-9c4b-7bfc16ec5e8c\",\"oid\":\"0190bc6f-f102-75fa-aac9-10e9be20b431\", ... }]}\n```\nUsing the last oid in the previous response, continue to request additional data until the returned count is 0. For example:\n```\ncurl -X 'GET' 'https://api.lookout.com/mra/api/v2/threats?oid=0190bc71-ced1-7c86-9019-fa9fc9c2e899&limit=2' -H 'accept: application/json' -H \"Authorization: Bearer $ACCESS_TOKEN\"\n\n{\"count\":32,\"threats\":[{\"guid\":\"6c6f3b14-84b9-4a4f-9ea3-071a9b06ac50\",\"oid\":\"0190bc72-8221-7906-8cda-e6af26d5b36f\", ... }, {\"guid\":\"b2630992-b03a-45d9-955e-df323edc9b3b\",\"oid\":\"0190bc72-3bc5-750f-bd54-0ffa885bd46e\", ... }]}\n```\n\nThis is a rate-limited query, and we reserve the right to return 429 Too Many Requests if the service is under load. Wait to try again\nif the response status code is 429.",
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Threats"
+          ],
+          "summary": "Get threats by filters",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "enum": [
+                "ROOT_ENABLER",
+                "RISKWARE",
+                "ADWARE",
+                "CHARGEWARE",
+                "DATA_LEAK",
+                "TROJAN",
+                "WORM",
+                "VIRUS",
+                "EXPLOIT",
+                "BACKDOOR",
+                "BOT",
+                "APP_DROPPER",
+                "CLICK_FRAUD",
+                "SPAM",
+                "SPYWARE",
+                "SURVEILLANCEWARE",
+                "VULNERABILITY",
+                "UNKNOWN",
+                "ROOT_JAILBREAK",
+                "CONNECTIVITY",
+                "TOLL_FRAUD",
+                "SIDELOADED_APP",
+                "ACTIVE_MITM",
+                "DENYLISTED_APP",
+                "ROGUE_WIFI",
+                "NON_APP_STORE_SIGNER",
+                "ACCESS_CONTROL_VIOLATION",
+                "NO_DEVICE_LOCK",
+                "OUT_OF_DATE_OS",
+                "OUT_OF_DATE_ASPL",
+                "VPN_NOT_ENABLED",
+                "PCP_DISABLED",
+                "UNENCRYPTED",
+                "DEVELOPER_MODE_ENABLED",
+                "USB_DEBUGGING_ENABLED",
+                "UNKNOWN_SOURCES_ENABLED",
+                "AGENT_OUTDATED",
+                "GATEWAY_ADDRESS_CHANGE",
+                "PORT_SCAN",
+                "SECURE_DNS_NOT_ENABLED",
+                "STORAGE_PERMISSION_NOT_ACCEPTED",
+                "NOTIFICATION_PERMISSION_NOT_ACCEPTED",
+                "PCP_PAUSED",
+                "SMISHING_PERMISSIONS_NOT_ACCEPTED",
+                "DEVICE_ADMIN_NOT_ACTIVATED",
+                "!ROOT_ENABLER",
+                "!RISKWARE",
+                "!ADWARE",
+                "!CHARGEWARE",
+                "!DATA_LEAK",
+                "!TROJAN",
+                "!WORM",
+                "!VIRUS",
+                "!EXPLOIT",
+                "!BACKDOOR",
+                "!BOT",
+                "!APP_DROPPER",
+                "!CLICK_FRAUD",
+                "!SPAM",
+                "!SPYWARE",
+                "!SURVEILLANCEWARE",
+                "!VULNERABILITY",
+                "!UNKNOWN",
+                "!ROOT_JAILBREAK",
+                "!CONNECTIVITY",
+                "!TOLL_FRAUD",
+                "!SIDELOADED_APP",
+                "!ACTIVE_MITM",
+                "!DENYLISTED_APP",
+                "!ROGUE_WIFI",
+                "!NON_APP_STORE_SIGNER",
+                "!ACCESS_CONTROL_VIOLATION",
+                "!NO_DEVICE_LOCK",
+                "!OUT_OF_DATE_OS",
+                "!OUT_OF_DATE_ASPL",
+                "!VPN_NOT_ENABLED",
+                "!PCP_DISABLED",
+                "!UNENCRYPTED",
+                "!DEVELOPER_MODE_ENABLED",
+                "!USB_DEBUGGING_ENABLED",
+                "!UNKNOWN_SOURCES_ENABLED",
+                "!AGENT_OUTDATED",
+                "!GATEWAY_ADDRESS_CHANGE",
+                "!PORT_SCAN",
+                "!SECURE_DNS_NOT_ENABLED",
+                "!STORAGE_PERMISSION_NOT_ACCEPTED",
+                "!NOTIFICATION_PERMISSION_NOT_ACCEPTED",
+                "!PCP_PAUSED",
+                "!SMISHING_PERMISSIONS_NOT_ACCEPTED",
+                "!DEVICE_ADMIN_NOT_ACTIVATED"
+              ],
+              "type": "string",
+              "name": "classification",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "name": "device_guid",
+              "in": "query"
+            },
+            {
+              "minimum": 0,
+              "type": "integer",
+              "description": "use oid and limit for pagination. Default: 100, Max: 1000",
+              "name": "limit",
+              "in": "query"
+            },
+            {
+              "minLength": 0,
+              "type": "string",
+              "description": "Order by id. Used for pagination, returns devices with oid strictly \u003C the specified oid. The oid format uses a UUID v7 which is a time sortable version of a UUID",
+              "name": "oid",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ANDROID",
+                "IOS"
+              ],
+              "type": "string",
+              "name": "platform",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "WORK",
+                "!WORK",
+                "PERSONAL",
+                "!PERSONAL"
+              ],
+              "type": "string",
+              "name": "profile_type",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "description": "query: search on device guid, mdm_device_id, mdm_connector_id, mdm_connector_uuid, email",
+              "name": "query",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "HIGH",
+                "MEDIUM",
+                "LOW",
+                "ADVISORY",
+                "NONE"
+              ],
+              "type": "string",
+              "name": "risk",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "OPEN",
+                "RESOLVED",
+                "IGNORED"
+              ],
+              "type": "string",
+              "name": "status",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "APPLICATION",
+                "!APPLICATION",
+                "CONFIGURATION",
+                "!CONFIGURATION",
+                "FILE",
+                "!FILE",
+                "NETWORK",
+                "!NETWORK",
+                "OS",
+                "!OS"
+              ],
+              "type": "string",
+              "name": "threat_type",
+              "in": "query"
+            },
+            {
+              "enum": [
+                "ALL",
+                "LAST_30_DAYS",
+                "LAST_60_DAYS",
+                "LAST_90_DAYS",
+                "LAST_6_MONTHS"
+              ],
+              "type": "string",
+              "name": "timeframe",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/v2.GetThreatsResponse"
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "429": {
+              "description": "Too many requests, please wait a moment and try again.",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/mra/stream/v2/events": {
+        "get": {
+          "description": "Streams Mobile Risk Notification events about Devices, Threats, Change Audits and Alerts using the Server Sent Events standard",
+          "produces": [
+            "text/event-stream"
+          ],
+          "tags": [
+            "Events"
+          ],
+          "summary": "Mobile Risk Notification Event Stream Subscription API",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer AccessToken",
+              "description": "Bearer AccessToken",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "description": "Omit 'Id' to start now, id: event id of a previous response, if the embedded timestamp of the id is older than 10 days API will start from 10 days ago",
+              "name": "id",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "example": "ISO8601 timestamp, urlencoded. E.g. 2023-07-18T17%3A53%3A56.556%2B00%3A00 for 2023-07-18T17:53:56.556+00:00, i.e. urlencode the start_time. If timestamp is older than 10 days ago, the API will calculate a timestamp 10 days in the past to start from ",
+              "name": "start_time",
+              "in": "query"
+            },
+            {
+              "type": "string",
+              "example": "if not specified, includes all of DEVICE,THREAT,AUDIT. Accepts one or more of DEVICE THREAT AUDIT separated by commas, e.g. types=DEVICE,THREAT to get just devices and threats",
+              "name": "types",
+              "in": "query"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Server Sent Events containing the event type (event, reconnected, error, end), an array of models.Event in the data field and the id of the last event in the array in the id field",
+              "schema": {
+                "$ref": "#/definitions/models.SSEEvent"
+              },
+              "headers": {
+                "Cache-Control": {
+                  "type": "string",
+                  "description": "no-cache"
+                },
+                "Content-Type": {
+                  "type": "string",
+                  "description": "text/event-stream"
+                }
+              }
+            },
+            "400": {
+              "description": "Bad Request",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      },
+      "/oauth2/token": {
+        "post": {
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "description": "OAuth2 endpoint to retrieve the access_token for the API calls",
+          "consumes": [
+            "application/x-www-form-urlencoded"
+          ],
+          "produces": [
+            "application/json"
+          ],
+          "tags": [
+            "Authorization"
+          ],
+          "summary": "OAuth2 endpoint to retrieve access_token for API calls",
+          "parameters": [
+            {
+              "type": "string",
+              "default": "Bearer ApplicationKey",
+              "description": "Authorization",
+              "name": "Authorization",
+              "in": "header",
+              "required": true
+            },
+            {
+              "type": "string",
+              "default": "client_credentials",
+              "description": "client_credentials",
+              "name": "grant_type",
+              "in": "formData",
+              "required": true
+            },
+            {
+              "type": "string",
+              "description": "scopes",
+              "name": "scope",
+              "in": "formData"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "OK",
+              "schema": {
+                "$ref": "#/definitions/controllers.OAuth2AccessTokenResponse"
+              }
+            },
+            "401": {
+              "description": "Unauthorized access - invalid or expired token, re-attempt after getting a new access token from the oauth2/token endpoint",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            },
+            "500": {
+              "description": "Internal Server Error",
+              "schema": {
+                "$ref": "#/definitions/models.ErrorResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    "definitions": {
+      "DeviceForThreat": {
+        "type": "object",
+        "properties": {
+          "customer_device_id": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/definitions/models.deviceDetails"
+          },
+          "email": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          }
+        }
+      },
+      "controllers.OAuth2AccessTokenResponse": {
+        "description": "OAuth2 Access Token response",
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Actor": {
+        "type": "object",
+        "properties": {
+          "guid": {
+            "description": "actor guid",
+            "type": "string"
+          },
+          "type": {
+            "description": "oneof=ADMIN DEVICE SYSTEM",
+            "type": "string"
+          }
+        }
+      },
+      "models.AndroidVulnOsProfile": {
+        "type": "object",
+        "properties": {
+          "patch_level": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Assessment": {
+        "type": "object",
+        "properties": {
+          "classification": {
+            "description": "oneof=ROOT_ENABLER RISKWARE ADWARE CHARGEWARE DATA_LEAK TROJAN WORM VIRUS EXPLOIT BACKDOOR BOT APP_DROPPER CLICK_FRAUD SPAM\nSPYWARE SURVEILLANCEWARE VULNERABILITY UNKNOWN ROOT_JAILBREAK CONNECTIVITY TOLL_FRAUD SIDELOADED_APP ACTIVE_MITM DENYLISTED_APP\nROGUE_WIFI NON_APP_STORE_SIGNER ACCESS_CONTROL_VIOLATION NO_DEVICE_LOCK OUT_OF_DATE_OS OUT_OF_DATE_ASPL VPN_NOT_ENABLED PCP_DISABLED\nUNENCRYPTED DEVELOPER_MODE_ENABLED USB_DEBUGGING_ENABLED UNKNOWN_SOURCES_ENABLED AGENT_OUTDATED MALICIOUS_CONTENT UNAUTHORIZED_CONTENT\nPHISHING_CONTENT DENYLISTED_CONTENT GATEWAY_ADDRESS_CHANGE PORT_SCAN SECURE_DNS_NOT_ENABLED STORAGE_PERMISSION_NOT_ACCEPTED\nNOTIFICATION_PERMISSION_NOT_ACCEPTED PCP_PAUSED SMISHING_PERMISSIONS_NOT_ACCEPTED DEVICE_ADMIN_NOT_ACTIVATED",
+            "type": "string"
+          },
+          "risk": {
+            "description": "oneof=NONE LOW MEDIUM HIGH",
+            "type": "string"
+          }
+        }
+      },
+      "models.AttributeChange": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "the value of the attribute before the change. can be empty.",
+            "type": "string"
+          },
+          "name": {
+            "description": "the name of the attribute that changed",
+            "type": "string"
+          },
+          "to": {
+            "description": "the value of the attribute after the change",
+            "type": "string"
+          }
+        }
+      },
+      "models.Audit": {
+        "description": "An Audit Event the attribute changes are a list of attributes and what the value changed 'from' and changed 'to'",
+        "type": "object",
+        "properties": {
+          "attribute_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.AttributeChange"
+            }
+          },
+          "type": {
+            "description": "oneof=ADMIN EMAIL_INVITE CLASSIFICATION_POLICY DENYLIST_POLICY ALLOWLIST_POLICY ENTERPRISE\nENTERPRISE_FEATURE ADMIN_LOGIN MDM_CONNECTOR TENANCY POLICY_CHANGE DEVICE_GROUP_CHANGE DEVICE\nTHREAT EXPORT PRODUCT_SETTINGS ORGANIZATION ORGANIZATION_TENANCY SSO POLICY_GROUP_CHANGE ADMIN_LOGOUT\nCOMMERCIAL_PARTNER APPLICATION COMMERCIAL_PARTNER_TENANCY IDP CUSTOM_THREAT_MESSAGE",
+            "type": "string"
+          }
+        }
+      },
+      "models.Client": {
+        "type": "object",
+        "properties": {
+          "lookout_sdk_version": {
+            "type": "string"
+          },
+          "ota_version": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "package_version": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Details": {
+        "description": "Details is a \"union\" of APPLICATION, FILE, CONFIGURATION, NETWORK, OS, WEB_CONTENT and the fields are filled based on the type of threat",
+        "type": "object",
+        "properties": {
+          "application_name": {
+            "type": "string"
+          },
+          "dns_ip_addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "latest_agent_config": {
+            "$ref": "#/definitions/models.LatestAgentConfig"
+          },
+          "latest_os_version": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "minimum_os_version": {
+            "type": "string"
+          },
+          "network": {
+            "$ref": "#/definitions/models.Network"
+          },
+          "network_ssid": {
+            "type": "string"
+          },
+          "os_version": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "package_sha": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "proxy_address": {
+            "type": "string"
+          },
+          "proxy_port": {
+            "type": "integer"
+          },
+          "proxy_protocol": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "oneof=OBJECTIONABLE_CONTENT MALICIOUS PHISHING DENYLISTED",
+            "type": "string"
+          },
+          "reputation": {
+            "type": "number"
+          },
+          "response": {
+            "description": "oneof=NONE BLOCKED REDIRECTED_USER_MAY_PROCEED",
+            "type": "string"
+          },
+          "trusted_signing_identity": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_response": {
+            "description": "oneof=BACK_TO_SAFETY WARNING_IGNORED ALLOWLISTED",
+            "type": "string"
+          },
+          "version_type": {
+            "description": "oneof=UNKNOWN ASPL OS_VERSION ANDROID_API_LEVEL",
+            "type": "string"
+          },
+          "vpn_local_address": {
+            "type": "string"
+          },
+          "vpn_present": {
+            "type": "boolean"
+          }
+        }
+      },
+      "models.Detection": {
+        "type": "object",
+        "properties": {
+          "alert_type": {
+            "description": "oneof=FRAUD_DETECTION URL_DETECTION",
+            "type": "string"
+          },
+          "category": {
+            "description": "oneof=UNKNOWN_URL_CATEGORY EMBEDDED_PHISHING_URL MALICIOUS_CONTENT UNKNOWN_FRAUD_CATEGORY CEO_FRAUD",
+            "type": "string"
+          },
+          "impersonated_employee": {
+            "type": "string"
+          },
+          "original_url": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Device": {
+        "type": "object",
+        "properties": {
+          "activated_at": {
+            "type": "string"
+          },
+          "activation_status": {
+            "description": "oneof=ACTIVATED DEACTIVATED PENDING",
+            "type": "string"
+          },
+          "checkin_time": {
+            "type": "string"
+          },
+          "client": {
+            "$ref": "#/definitions/models.Client"
+          },
+          "customer_device_id": {
+            "type": "string"
+          },
+          "deactivated_at": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/definitions/models.DeviceDetails"
+          },
+          "device_group_guid": {
+            "type": "string"
+          },
+          "device_permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.DevicePermission"
+            }
+          },
+          "device_settings": {
+            "$ref": "#/definitions/models.DeviceSettings"
+          },
+          "device_vulns": {
+            "$ref": "#/definitions/models.DeviceVulnerabilities"
+          },
+          "disconnected_at": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "enterprise_guid": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "hardware": {
+            "$ref": "#/definitions/models.Hardware"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "mdm_type": {
+            "type": "string"
+          },
+          "oid": {
+            "type": "string"
+          },
+          "parent_device_guid": {
+            "type": "string"
+          },
+          "parent_status": {
+            "$ref": "#/definitions/models.ParentStatus"
+          },
+          "platform": {
+            "description": "oneof=ANDROID IOS",
+            "type": "string"
+          },
+          "profile_type": {
+            "description": "oneof=WORK PERSONAL if present",
+            "type": "string"
+          },
+          "protection_status": {
+            "description": "oneof=PROTECTED DISCONNECTED",
+            "type": "string"
+          },
+          "risky_config": {
+            "$ref": "#/definitions/models.RiskyConfig"
+          },
+          "security_status": {
+            "description": "oneof=SECURE THREATS_LOW THREATS_MEDIUM THREATS_HIGH",
+            "type": "string"
+          },
+          "software": {
+            "$ref": "#/definitions/models.Software"
+          },
+          "updated_time": {
+            "type": "string"
+          }
+        }
+      },
+      "models.DeviceAdminSettings": {
+        "type": "object",
+        "properties": {
+          "activated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "models.DeviceChange": {
+        "type": "object",
+        "properties": {
+          "client": {
+            "$ref": "#/definitions/models.Client"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "hardware": {
+            "$ref": "#/definitions/models.Hardware"
+          },
+          "info": {
+            "$ref": "#/definitions/models.Info"
+          },
+          "parent_status": {
+            "$ref": "#/definitions/models.ParentStatus"
+          },
+          "platform": {
+            "description": "oneof=ANDROID IOS",
+            "type": "string"
+          },
+          "profile_type": {
+            "description": "oneof=WORK PERSONAL if present",
+            "type": "string"
+          },
+          "software": {
+            "$ref": "#/definitions/models.Software"
+          },
+          "status": {
+            "$ref": "#/definitions/models.Status"
+          }
+        }
+      },
+      "models.DeviceDetails": {
+        "type": "object",
+        "properties": {
+          "external_id": {
+            "type": "string"
+          },
+          "mdm_connector_id": {
+            "type": "integer"
+          },
+          "mdm_connector_uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "models.DevicePermission": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "boolean"
+          }
+        }
+      },
+      "models.DeviceSettings": {
+        "type": "object",
+        "properties": {
+          "device_admin_settings": {
+            "$ref": "#/definitions/models.DeviceAdminSettings"
+          },
+          "pcp_settings": {
+            "$ref": "#/definitions/models.PcpSettings"
+          }
+        }
+      },
+      "models.DeviceVulnerabilities": {
+        "type": "object",
+        "properties": {
+          "vulnerabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.VulnerabilityInfo"
+            }
+          }
+        }
+      },
+      "models.ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "request-id": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Event": {
+        "description": "Audit, Device or Threat Change event",
+        "type": "object",
+        "properties": {
+          "actor": {
+            "$ref": "#/definitions/models.Actor"
+          },
+          "audit": {
+            "$ref": "#/definitions/models.Audit"
+          },
+          "change_type": {
+            "description": "oneof=CREATED UPDATED DELETED PURGED",
+            "type": "string"
+          },
+          "created_time": {
+            "type": "string"
+          },
+          "device": {
+            "$ref": "#/definitions/models.DeviceChange"
+          },
+          "enterprise_guid": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/definitions/models.Target"
+          },
+          "threat": {
+            "$ref": "#/definitions/models.ThreatChange"
+          },
+          "type": {
+            "description": "oneof=DEVICE THREAT AUDIT",
+            "type": "string"
+          }
+        }
+      },
+      "models.Hardware": {
+        "type": "object",
+        "properties": {
+          "manufacturer": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Info": {
+        "type": "object",
+        "properties": {
+          "customer_device_id": {
+            "type": "string"
+          },
+          "device_group_guids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "email": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "mdm_connector_id": {
+            "type": "string"
+          },
+          "mdm_type": {
+            "type": "string"
+          },
+          "previous_device_group_guids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "models.IosVulnOsProfile": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "models.LatestAgentConfig": {
+        "type": "object",
+        "properties": {
+          "latest_version": {
+            "description": "deprecated",
+            "type": "string"
+          },
+          "minimum_compliant_version": {
+            "type": "integer"
+          }
+        }
+      },
+      "models.Network": {
+        "type": "object",
+        "properties": {
+          "access_point_hostname": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "dns_ip_address": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "network_name": {
+            "type": "string"
+          },
+          "network_type": {
+            "description": "oneof=NETWORK_CONNECTION_TYPE_WIFI NETWORK_CONNECTION_TYPE_MOBILE_CARRIER NETWORK_CONNECTION_TYPE_UNKNOWN",
+            "type": "string"
+          },
+          "proxy_config": {
+            "$ref": "#/definitions/models.ProxyConfiguration"
+          },
+          "vpn_configuration": {
+            "$ref": "#/definitions/models.VpnConfiguration"
+          },
+          "wifi_bssid": {
+            "type": "string"
+          }
+        }
+      },
+      "models.PackagesWithAdmin": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "models.ParentStatus": {
+        "type": "object",
+        "properties": {
+          "activation_status": {
+            "description": "oneof=ACTIVATED DEACTIVATED PENDING",
+            "type": "string"
+          },
+          "parent_device_guid": {
+            "type": "string"
+          },
+          "protection_status": {
+            "description": "oneof=PROTECTED DISCONNECTED",
+            "type": "string"
+          },
+          "security_status": {
+            "description": "oneof=SECURE THREATS_LOW THREATS_MEDIUM THREATS_HIGH",
+            "type": "string"
+          }
+        }
+      },
+      "models.PcpSettings": {
+        "type": "object",
+        "properties": {
+          "accessibility": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "on_device_vpn": {
+            "type": "boolean"
+          },
+          "secure_dns": {
+            "type": "boolean"
+          }
+        }
+      },
+      "models.ProxyConfiguration": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          }
+        }
+      },
+      "models.RiskyConfig": {
+        "type": "object",
+        "properties": {
+          "developer_mode": {
+            "type": "string"
+          },
+          "developer_mode_v2": {
+            "type": "string"
+          },
+          "encryption": {
+            "type": "string"
+          },
+          "install_non_market_apps": {
+            "type": "string"
+          },
+          "lock_screen": {
+            "type": "string"
+          },
+          "packages_with_admin": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.PackagesWithAdmin"
+            }
+          },
+          "risky_network_config": {
+            "$ref": "#/definitions/models.RiskyNetworkConfig"
+          },
+          "trusted_signing_identities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "usb_debugging": {
+            "type": "string"
+          }
+        }
+      },
+      "models.RiskyNetworkConfig": {
+        "type": "object",
+        "properties": {
+          "external_vpn_state": {
+            "type": "string"
+          },
+          "external_vpn_state_changed_time": {
+            "type": "string"
+          },
+          "pcp_pause_duration_seconds": {
+            "type": "integer"
+          }
+        }
+      },
+      "models.SSEEvent": {
+        "description": "Server Sent Event (SSE Event) has 3 fields, id, event and data separated by newlines each SSE Event is separated from the next one by an empty newline",
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "array of Events",
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Event"
+            }
+          },
+          "event": {
+            "description": "event: data contains array of events, reconnect: server disconnected, attempt reconnect with last ID processed, end: stream ended",
+            "type": "string",
+            "enum": [
+              "event",
+              "reconnect",
+              "end"
+            ]
+          },
+          "id": {
+            "description": "the Id of the last Event in the Data Events array",
+            "type": "string"
+          }
+        }
+      },
+      "models.SmishingAlert": {
+        "type": "object",
+        "properties": {
+          "detected_at": {
+            "type": "string"
+          },
+          "detections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Detection"
+            }
+          },
+          "device": {
+            "$ref": "#/definitions/models.SmishingAlertDevice"
+          },
+          "device_guid": {
+            "type": "string"
+          },
+          "enterprise_guid": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "oid": {
+            "description": "sourced from 'id' field in Hasura",
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        }
+      },
+      "models.SmishingAlertDevice": {
+        "type": "object",
+        "properties": {
+          "customer_device_id": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/definitions/models.DeviceDetails"
+          },
+          "guid": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Software": {
+        "type": "object",
+        "properties": {
+          "latest_os_version": {
+            "type": "string"
+          },
+          "latest_security_patch_level": {
+            "type": "string"
+          },
+          "os_version": {
+            "type": "string"
+          },
+          "os_version_date": {
+            "type": "string"
+          },
+          "os_version_rsr": {
+            "type": "string"
+          },
+          "rsr": {
+            "type": "string"
+          },
+          "sdk_version": {
+            "type": "string"
+          },
+          "security_patch_level": {
+            "type": "string"
+          }
+        }
+      },
+      "models.Status": {
+        "type": "object",
+        "properties": {
+          "activation_status": {
+            "description": "oneof=ACTIVATED DEACTIVATED PENDING",
+            "type": "string"
+          },
+          "protection_status": {
+            "description": "oneof=PROTECTED DISCONNECTED",
+            "type": "string"
+          },
+          "security_status": {
+            "description": "oneof=SECURE THREATS_LOW THREATS_MEDIUM THREATS_HIGH",
+            "type": "string"
+          }
+        }
+      },
+      "models.Target": {
+        "type": "object",
+        "properties": {
+          "guid": {
+            "description": "target entity guid",
+            "type": "string"
+          },
+          "type": {
+            "description": "oneof=ADMIN ENTERPRISE DEVICE THREAT CONNECTOR ORGANIZATION COMMERCIAL_PARTNER APPLICATION IDP",
+            "type": "string"
+          }
+        }
+      },
+      "models.Threat": {
+        "type": "object",
+        "properties": {
+          "assessments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Assessment"
+            }
+          },
+          "classification": {
+            "description": "oneof=ROOT_ENABLER RISKWARE ADWARE CHARGEWARE DATA_LEAK TROJAN WORM VIRUS EXPLOIT BACKDOOR BOT APP_DROPPER CLICK_FRAUD SPAM\nSPYWARE SURVEILLANCEWARE VULNERABILITY UNKNOWN ROOT_JAILBREAK CONNECTIVITY TOLL_FRAUD SIDELOADED_APP ACTIVE_MITM DENYLISTED_APP\nROGUE_WIFI NON_APP_STORE_SIGNER ACCESS_CONTROL_VIOLATION NO_DEVICE_LOCK OUT_OF_DATE_OS OUT_OF_DATE_ASPL VPN_NOT_ENABLED PCP_DISABLED\nUNENCRYPTED DEVELOPER_MODE_ENABLED USB_DEBUGGING_ENABLED UNKNOWN_SOURCES_ENABLED AGENT_OUTDATED MALICIOUS_CONTENT UNAUTHORIZED_CONTENT\nPHISHING_CONTENT DENYLISTED_CONTENT GATEWAY_ADDRESS_CHANGE PORT_SCAN SECURE_DNS_NOT_ENABLED STORAGE_PERMISSION_NOT_ACCEPTED\nNOTIFICATION_PERMISSION_NOT_ACCEPTED PCP_PAUSED SMISHING_PERMISSIONS_NOT_ACCEPTED DEVICE_ADMIN_NOT_ACTIVATED",
+            "type": "string"
+          },
+          "created_time": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/definitions/models.Details"
+          },
+          "detected_at": {
+            "type": "string"
+          },
+          "device": {
+            "$ref": "#/definitions/DeviceForThreat"
+          },
+          "device_guid": {
+            "type": "string"
+          },
+          "enterprise_guid": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "oid": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": "string"
+          },
+          "risk": {
+            "description": "oneof=NONE ADVISORY LOW MEDIUM HIGH",
+            "type": "string"
+          },
+          "status": {
+            "description": "oneof=OPEN RESOLVED IGNORED",
+            "type": "string"
+          },
+          "type": {
+            "description": "type of threat, oneof=APPLICATION FILE OS NETWORK CONFIGURATION WEB_CONTENT",
+            "type": "string"
+          }
+        }
+      },
+      "models.ThreatChange": {
+        "description": "Threat Change Event",
+        "type": "object",
+        "properties": {
+          "assessments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Assessment"
+            }
+          },
+          "classifications": {
+            "description": "oneof=ROOT_ENABLER RISKWARE ADWARE CHARGEWARE DATA_LEAK TROJAN WORM VIRUS EXPLOIT BACKDOOR BOT APP_DROPPER CLICK_FRAUD SPAM\nSPYWARE SURVEILLANCEWARE VULNERABILITY UNKNOWN ROOT_JAILBREAK CONNECTIVITY TOLL_FRAUD SIDELOADED_APP ACTIVE_MITM DENYLISTED_APP\nROGUE_WIFI NON_APP_STORE_SIGNER ACCESS_CONTROL_VIOLATION NO_DEVICE_LOCK OUT_OF_DATE_OS OUT_OF_DATE_ASPL VPN_NOT_ENABLED PCP_DISABLED\nUNENCRYPTED DEVELOPER_MODE_ENABLED USB_DEBUGGING_ENABLED UNKNOWN_SOURCES_ENABLED AGENT_OUTDATED MALICIOUS_CONTENT UNAUTHORIZED_CONTENT\nPHISHING_CONTENT DENYLISTED_CONTENT GATEWAY_ADDRESS_CHANGE PORT_SCAN SECURE_DNS_NOT_ENABLED STORAGE_PERMISSION_NOT_ACCEPTED\nNOTIFICATION_PERMISSION_NOT_ACCEPTED PCP_PAUSED SMISHING_PERMISSIONS_NOT_ACCEPTED DEVICE_ADMIN_NOT_ACTIVATED",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "details": {
+            "$ref": "#/definitions/models.Details"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "severity": {
+            "description": "oneof=NONE LOW MEDIUM HIGH",
+            "type": "string"
+          },
+          "status": {
+            "description": "oneof=OPEN RESOLVED IGNORED",
+            "type": "string"
+          },
+          "type": {
+            "description": "type of threat, oneof=APPLICATION FILE OS NETWORK CONFIGURATION WEB_CONTENT",
+            "type": "string"
+          }
+        }
+      },
+      "models.VpnConfiguration": {
+        "type": "object",
+        "properties": {
+          "dns_ip_address": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "local_address": {
+            "type": "string"
+          },
+          "proxy_config": {
+            "$ref": "#/definitions/models.ProxyConfiguration"
+          },
+          "remote_address": {
+            "type": "string"
+          },
+          "remote_domain": {
+            "type": "string"
+          },
+          "remote_port": {
+            "type": "integer"
+          },
+          "routes": {
+            "type": "string"
+          },
+          "vpn_protocol_type": {
+            "description": "oneof=  VPN_PROTOCOL_UNKNOWN VPN_PROTOCOL_TYPE_PPTP VPN_PROTOCOL_L2TP VPN_PROTOCOL_IPSEC VPN_PROTOCOL_SSL VPN_PROTOCOL_IKEV2 VPN_PROTOCOL_OPEN_VPN",
+            "type": "string"
+          }
+        }
+      },
+      "models.Vulnerabilities": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "vulnerabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.VulnerabilityBySeverity"
+            }
+          }
+        }
+      },
+      "models.Vulnerability": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "models.VulnerabilityBySeverity": {
+        "type": "object",
+        "properties": {
+          "vulnerability": {
+            "$ref": "#/definitions/models.Vulnerability"
+          }
+        }
+      },
+      "models.VulnerabilityInfo": {
+        "type": "object",
+        "properties": {
+          "info": {
+            "$ref": "#/definitions/models.Vulnerability"
+          }
+        }
+      },
+      "models.deviceDetails": {
+        "type": "object",
+        "properties": {
+          "external_id": {
+            "type": "string"
+          },
+          "mdm_connector_id": {
+            "type": "string"
+          },
+          "mdm_connector_uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "v2.AndroidVersionInfo": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "security_patch_level": {
+            "type": "string"
+          }
+        }
+      },
+      "v2.DevicesByCveNameResponse": {
+        "type": "object",
+        "properties": {
+          "guid": {
+            "type": "string"
+          },
+          "latest_os_version": {
+            "type": "string"
+          },
+          "latest_security_patch_level": {
+            "type": "string"
+          },
+          "os_version": {
+            "type": "string"
+          },
+          "os_version_date": {
+            "type": "string"
+          },
+          "os_version_rsr": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "rsr": {
+            "type": "string"
+          },
+          "sdk_version": {
+            "type": "string"
+          },
+          "security_patch_level": {
+            "type": "string"
+          }
+        }
+      },
+      "v2.GetCveByNameResponse": {
+        "type": "object",
+        "properties": {
+          "cve": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Vulnerability"
+            }
+          }
+        }
+      },
+      "v2.GetDevicesByCveNameResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/v2.DevicesByCveNameResponse"
+            }
+          }
+        }
+      },
+      "v2.GetDevicesResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Device"
+            }
+          }
+        }
+      },
+      "v2.GetDistinctOsVersionsResponse": {
+        "type": "object",
+        "properties": {
+          "android": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/v2.AndroidVersionInfo"
+            }
+          },
+          "ios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/v2.IosVersionInfo"
+            }
+          }
+        }
+      },
+      "v2.GetOsVulnsByCveNameResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "vuln_android_profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.AndroidVulnOsProfile"
+            }
+          },
+          "vuln_ios_profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.IosVulnOsProfile"
+            }
+          }
+        }
+      },
+      "v2.GetSmishingAlertsResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "smishing_alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.SmishingAlert"
+            }
+          }
+        }
+      },
+      "v2.GetThreatsResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "threats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/models.Threat"
+            }
+          }
+        }
+      },
+      "v2.IosVersionInfo": {
+        "type": "object",
+        "properties": {
+          "os_version": {
+            "type": "string"
+          },
+          "os_version_date": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "rsr": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tags": [
+      {
+        "name": "Authorization"
+      },
+      {
+        "name": "Devices"
+      },
+      {
+        "name": "Threats"
+      },
+      {
+        "name": "OS Vulnerabilities"
+      },
+      {
+        "name": "Events"
+      }
+    ]
+  }
+  
