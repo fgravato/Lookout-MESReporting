@@ -1,0 +1,336 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Security Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Mobile Security Report</h1>
+                <p id="report-timestamp" class="text-sm text-gray-500 mt-1"></p>
+                <p id="cache-info" class="text-xs text-gray-400 mt-1"></p>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <select id="timeframe" class="p-2 border rounded shadow-sm bg-white">
+                    <option value="LAST_30_DAYS">Last 30 Days</option>
+                    <option value="LAST_60_DAYS">Last 60 Days</option>
+                    <option value="LAST_90_DAYS">Last 90 Days</option>
+                    <option value="LAST_6_MONTHS">Last 6 Months</option>
+                </select>
+                <button id="generate" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+                    Update Report
+                </button>
+                <button id="export-csv" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition">
+                    Export CSV
+                </button>
+                <button id="export-pdf" class="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 transition">
+                    Save PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="hidden">
+            <div class="flex items-center justify-center p-8">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p class="ml-3 text-lg text-gray-600">Generating report...</p>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6">
+            <p class="font-bold">Error</p>
+            <p id="error-text"></p>
+        </div>
+
+        <!-- Report Content -->
+        <div id="report" class="hidden space-y-8">
+            <!-- Device Enrollment & Updates Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Device Enrollment & Updates</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Total Enrolled Devices</h3>
+                        <p id="total-devices" class="text-3xl font-bold text-blue-600"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">iOS Devices</h3>
+                        <p id="ios-devices" class="text-3xl font-bold text-blue-400"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Android Devices</h3>
+                        <p id="android-devices" class="text-3xl font-bold text-green-400"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Devices Up to Date</h3>
+                        <p id="updated-devices" class="text-3xl font-bold text-green-600"></p>
+                        <p id="update-percentage" class="text-sm text-gray-500"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Devices Missing Updates</h3>
+                        <p id="missed-updates" class="text-3xl font-bold text-red-600"></p>
+                    </div>
+                </div>
+                <div class="mt-6">
+                    <div id="update-chart" class="h-64"></div>
+                </div>
+            </div>
+
+            <!-- Security Incidents Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Security Incidents</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Web Threats</h3>
+                        <p id="web-threats-total" class="text-3xl font-bold text-purple-600"></p>
+                        <div class="mt-2 space-y-1 text-sm">
+                            <p><span class="text-gray-500">Malicious:</span> <span id="web-threats-malicious" class="font-medium"></span></p>
+                            <p><span class="text-gray-500">Unauthorized:</span> <span id="web-threats-unauthorized" class="font-medium"></span></p>
+                            <p><span class="text-gray-500">Phishing:</span> <span id="web-threats-phishing" class="font-medium"></span></p>
+                            <p><span class="text-gray-500">Denylisted:</span> <span id="web-threats-denylisted" class="font-medium"></span></p>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Unauthorized Apps</h3>
+                        <p id="unauthorized-apps" class="text-3xl font-bold text-indigo-600"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Malware Detected</h3>
+                        <p id="malware-detected" class="text-3xl font-bold text-red-600"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-sm font-medium text-gray-500">Phishing Attempts</h3>
+                        <p id="phishing-attempts" class="text-3xl font-bold text-orange-600"></p>
+                    </div>
+                </div>
+                <div id="threats-chart" class="h-64"></div>
+            </div>
+
+            <!-- Blocked Websites Details -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Top Blocked Websites</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead>
+                            <tr>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk Level</th>
+                                <th class="px-6 py-3 bg-gray-50 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Block Count</th>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Blocked</th>
+                            </tr>
+                        </thead>
+                        <tbody id="blocked-sites" class="bg-white divide-y divide-gray-200">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num);
+        }
+
+        function showError(message) {
+            $('#error-text').text(message);
+            $('#error-message').removeClass('hidden');
+            setTimeout(() => {
+                $('#error-message').addClass('hidden');
+            }, 5000);
+        }
+
+        function getRiskColor(risk) {
+            const colors = {
+                'HIGH': 'text-red-600',
+                'MEDIUM': 'text-orange-600',
+                'LOW': 'text-yellow-600',
+                'ADVISORY': 'text-blue-600',
+                'UNKNOWN': 'text-gray-600'
+            };
+            return colors[risk] || 'text-gray-600';
+        }
+
+        function updateTimestamp() {
+            const timestamp = moment().format('MMMM D, YYYY HH:mm:ss');
+            $('#report-timestamp').text(`Generated: ${timestamp}`);
+            return timestamp;
+        }
+
+        async function generatePDF(timestamp) {
+            // Wait for charts to be fully rendered
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const element = document.getElementById('report');
+            const opt = {
+                margin: [10, 10],
+                filename: `mobile_security_report_${moment().format('YYYY-MM-DD_HH-mm')}`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { 
+                    scale: 2,
+                    useCORS: true,
+                    logging: false
+                },
+                jsPDF: { 
+                    unit: 'mm', 
+                    format: 'a4', 
+                    orientation: 'portrait' 
+                },
+                pagebreak: { mode: 'avoid-all' }
+            };
+
+            try {
+                await html2pdf().set(opt).from(element).save();
+            } catch (error) {
+                showError('Error generating PDF: ' + error.message);
+            }
+        }
+
+        function loadReport(timeframe) {
+            $('#loading').removeClass('hidden');
+            $('#report').addClass('hidden');
+            $('#error-message').addClass('hidden');
+            
+            $.get(`/api/report?timeframe=${timeframe}`, function(data) {
+                const timestamp = updateTimestamp();
+                
+                // Update cache info
+                const cacheInfo = data.is_cached
+                    ? `Using cached data from ${moment(data.cache_timestamp).format('HH:mm:ss')}`
+                    : 'Fresh data from API';
+                $('#cache-info').text(cacheInfo);
+
+                // Update enrollment and update metrics
+                $('#total-devices').text(formatNumber(data.total_devices));
+                $('#ios-devices').text(formatNumber(data.ios_devices));
+                $('#android-devices').text(formatNumber(data.android_devices));
+                $('#updated-devices').text(formatNumber(data.updated_devices));
+                $('#missed-updates').text(formatNumber(data.missed_updates));
+                
+                const updatePercentage = ((data.updated_devices / data.total_devices) * 100).toFixed(1);
+                $('#update-percentage').text(`${updatePercentage}% compliance`);
+
+                // Update security incidents
+                // Update web threats metrics
+                $('#web-threats-total').text(formatNumber(data.web_threats.total));
+                $('#web-threats-malicious').text(formatNumber(data.web_threats.malicious));
+                $('#web-threats-unauthorized').text(formatNumber(data.web_threats.unauthorized));
+                $('#web-threats-phishing').text(formatNumber(data.web_threats.phishing));
+                $('#web-threats-denylisted').text(formatNumber(data.web_threats.denylisted));
+                $('#unauthorized-apps').text(formatNumber(data.unauthorized_apps));
+                $('#malware-detected').text(formatNumber(data.malware_detected));
+                $('#phishing-attempts').text(formatNumber(data.phishing_attempts));
+
+                // Create device update status chart
+                const updateData = [{
+                    values: [data.updated_devices, data.missed_updates],
+                    labels: ['Up to Date', 'Needs Update'],
+                    type: 'pie',
+                    hole: 0.4,
+                    marker: {
+                        colors: ['#059669', '#DC2626']
+                    }
+                }];
+                
+                Plotly.newPlot('update-chart', updateData, {
+                    title: 'Device Update Compliance',
+                    showlegend: true,
+                    legend: {
+                        orientation: 'h',
+                        y: -0.1
+                    },
+                    margin: { t: 30, l: 0, r: 0, b: 0 }
+                });
+
+                // Create security incidents chart
+                const threatData = [{
+                    x: ['Malicious', 'Unauthorized', 'Phishing', 'Denylisted', 'Unauthorized Apps', 'Malware'],
+                    y: [
+                        data.web_threats.malicious,
+                        data.web_threats.unauthorized,
+                        data.web_threats.phishing,
+                        data.web_threats.denylisted,
+                        data.unauthorized_apps,
+                        data.malware_detected
+                    ],
+                    type: 'bar',
+                    marker: {
+                        color: ['#9333EA', '#4F46E5', '#EA580C', '#7C3AED', '#4338CA', '#DC2626']
+                    }
+                }];
+                
+                Plotly.newPlot('threats-chart', threatData, {
+                    title: 'Security Threats by Category',
+                    showlegend: false,
+                    margin: { t: 30, l: 40, r: 0, b: 40 },
+                    yaxis: {
+                        title: 'Count'
+                    }
+                });
+
+                // Update blocked websites table
+                const blockedSites = $('#blocked-sites');
+                blockedSites.empty();
+                
+                data.top_blocked_sites.forEach(site => {
+                    blockedSites.append(`
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${site.url}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${site.category}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <span class="font-medium ${getRiskColor(site.risk)}">${site.risk}</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">${formatNumber(site.count)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                ${moment(site.last_seen).format('MMM D, YYYY HH:mm')}
+                            </td>
+                        </tr>
+                    `);
+                });
+
+                $('#loading').addClass('hidden');
+                $('#report').removeClass('hidden');
+            }).fail(function(err) {
+                $('#loading').addClass('hidden');
+                if (err.status === 429) {
+                    showError('Rate limit exceeded. Please wait a moment and try again.');
+                } else {
+                    showError('Error loading report: ' + (err.responseJSON?.error || 'Unknown error'));
+                }
+            });
+        }
+
+        // Event handlers
+        $('#generate').click(function() {
+            const timeframe = $('#timeframe').val();
+            loadReport(timeframe);
+        });
+
+        $('#export-csv').click(function() {
+            const timeframe = $('#timeframe').val();
+            window.location.href = `/api/report/export?timeframe=${timeframe}`;
+        });
+
+        $('#export-pdf').click(async function() {
+            const timestamp = $('#report-timestamp').text();
+            await generatePDF(timestamp);
+        });
+
+        // Load initial report
+        $(document).ready(function() {
+            loadReport('LAST_30_DAYS');
+        });
+    </script>
+</body>
+</html>
